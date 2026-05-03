@@ -75,6 +75,11 @@ const studentSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  discountRemark: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   address: {
     type: String,
     trim: true
@@ -90,6 +95,18 @@ const studentSchema = new mongoose.Schema({
   installments: {
     type: Number,
     default: 1
+  },
+  emiAmount: {
+    type: Number,
+    default: 0
+  },
+  nextInstallmentAmount: {
+    type: Number,
+    default: 0
+  },
+  installmentsPaidCount: {
+    type: Number,
+    default: 0
   },
   nextDueDate: {
     type: Date

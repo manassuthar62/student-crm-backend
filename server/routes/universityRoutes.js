@@ -41,6 +41,15 @@ router.put('/:id', async (req, res) => {
 // Delete (Deactivate) a university
 router.delete('/:id', async (req, res) => {
   try {
+    const Student = require('../models/Student');
+    const studentCount = await Student.countDocuments({ university: req.params.id });
+
+    if (studentCount > 0) {
+      return res.status(400).json({ 
+        message: `Cannot delete university. There are ${studentCount} students enrolled in this university. Delete students first.` 
+      });
+    }
+
     await University.findByIdAndUpdate(req.params.id, { isActive: false });
     res.json({ message: 'University deactivated' });
   } catch (err) {

@@ -87,6 +87,15 @@ router.put('/:id', async (req, res) => {
 // Delete (Deactivate) a center
 router.delete('/:id', async (req, res) => {
   try {
+    const Student = require('../models/Student');
+    const studentCount = await Student.countDocuments({ center: req.params.id });
+    
+    if (studentCount > 0) {
+      return res.status(400).json({ 
+        message: `Cannot delete center. There are ${studentCount} students assigned to this center. Delete students first.` 
+      });
+    }
+
     const center = await Center.findByIdAndUpdate(req.params.id, { isActive: false });
     if (center && center.userId) {
       await User.findByIdAndUpdate(center.userId, { isActive: false });

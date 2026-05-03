@@ -26,6 +26,7 @@ const universityRoutes = require('./routes/universityRoutes');
 const centerRoutes = require('./routes/centerRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const feeRoutes = require('./routes/feeRoutes');
+const staffRoutes = require('./routes/staffRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -33,6 +34,7 @@ app.use('/api/universities', universityRoutes);
 app.use('/api/centers', centerRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/fees', feeRoutes);
+app.use('/api/staff', staffRoutes);
 
 // Basic Route
 app.get('/', (req, res) => {
@@ -42,7 +44,20 @@ app.get('/', (req, res) => {
 // Database Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/crm_app';
 mongoose.connect(MONGODB_URI)
-  .then(() => console.log('✅ MongoDB Connected'))
+  .then(async () => {
+    console.log('✅ MongoDB Connected');
+    try {
+      // Drop problematic indices to allow sparse recreation
+      const collections = await mongoose.connection.db.listCollections({ name: 'users' }).toArray();
+      if (collections.length > 0) {
+        await mongoose.connection.db.collection('users').dropIndex('mobile_1').catch(() => {});
+        await mongoose.connection.db.collection('users').dropIndex('email_1').catch(() => {});
+        console.log('🧹 Database indices cleaned up');
+      }
+    } catch (e) {
+      console.log('Note: Index cleanup skipped or not needed');
+    }
+  })
   .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 // Start Server

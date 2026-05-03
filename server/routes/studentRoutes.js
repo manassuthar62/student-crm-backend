@@ -20,10 +20,49 @@ router.get('/', async (req, res) => {
   }
 });
 
+// TEMPORARY: Fix EMIs for all students
+router.get('/fix-emis-data', async (req, res) => {
+  try {
+    const students = await Student.find({ paymentPlan: 'Installment' });
+    let count = 0;
+    
+    for (let student of students) {
+      const totalInstallments = student.installments || 1;
+      const paidCount = student.installmentsPaidCount || 0;
+      const remainingInstallments = totalInstallments - paidCount;
+      
+      if (remainingInstallments > 0) {
+        const totalFees = Number(student.totalFees) || 0;
+        const discount = Number(student.discount) || 0;
+        const paidFees = Number(student.paidFees) || 0;
+        const remainingToPay = (totalFees - discount) - paidFees;
+        
+        const emi = Math.ceil(remainingToPay / remainingInstallments);
+        student.emiAmount = emi;
+        student.nextInstallmentAmount = emi;
+        await student.save();
+        count++;
+      }
+    }
+    res.json({ message: `Successfully fixed EMIs for ${count} students` });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Student Registration
 router.post('/register', async (req, res) => {
   try {
     const studentData = { ...req.body, status: 'registered' };
+    
+    // Calculate EMI if it's an installment plan
+    if (studentData.paymentPlan === 'Installment' && studentData.installments > 0) {
+      const totalToPay = (Number(studentData.totalFees) || 0) - (Number(studentData.discount) || 0) - (Number(studentData.paidFees) || 0);
+      const emi = Math.ceil(totalToPay / studentData.installments);
+      studentData.emiAmount = emi;
+      studentData.nextInstallmentAmount = emi;
+    }
+
     const student = new Student(studentData);
     const newStudent = await student.save();
 
@@ -115,8 +154,38 @@ router.get('/mobile/:mobile', async (req, res) => {
 // Update student details
 router.put('/:id', async (req, res) => {
   try {
-    const student = await Student.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const student = await Student.findById(req.params.id);
     if (!student) return res.status(404).json({ message: 'Student not found' });
+
+    // Update fields
+    Object.assign(student, req.body);
+
+    // Recalculate EMI if it's an installment plan
+    if (student.paymentPlan === 'Installment') {
+      const totalInstallments = student.installments || 1;
+      const paidCount = student.installmentsPaidCount || 0;
+      const remainingInstallments = totalInstallments - paidCount;
+      
+      if (remainingInstallments > 0) {
+        const totalFees = Number(student.totalFees) || 0;
+        const discount = Number(student.discount) || 0;
+        const paidFees = Number(student.paidFees) || 0;
+        const remainingToPay = (totalFees - discount) - paidFees;
+        
+        const emi = Math.ceil(remainingToPay / remainingInstallments);
+        student.emiAmount = emi;
+        student.nextInstallmentAmount = emi;
+      } else {
+        // No remaining installments, set to balance
+        const totalFees = Number(student.totalFees) || 0;
+        const discount = Number(student.discount) || 0;
+        const paidFees = Number(student.paidFees) || 0;
+        const balance = (totalFees - discount) - paidFees;
+        student.nextInstallmentAmount = balance > 0 ? balance : 0;
+      }
+    }
+
+    await student.save();
     res.json({ message: 'Student updated successfully', student });
   } catch (err) {
     res.status(400).json({ message: err.message });

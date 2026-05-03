@@ -6,31 +6,90 @@ const Student = require('../models/Student');
 // Deposit Fee
 router.post('/deposit', async (req, res) => {
   try {
+    console.log('--- Fee Deposit Process Started ---');
+    console.log('Request Body:', JSON.stringify(req.body, null, 2));
+    
     const { studentId, amount, paymentMode, remarks, recordedBy, referenceId } = req.body;
 
+    if (!studentId || !amount) {
+      return res.status(400).json({ message: 'Student ID and amount are required' });
+    }
+
+    const student = await Student.findById(studentId);
+    if (!student) {
+      console.log('❌ Student not found:', studentId);
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    const depositAmount = Number(amount);
+    if (isNaN(depositAmount)) {
+      return res.status(400).json({ message: 'Invalid amount provided' });
+    }
+
     // 1. Create Fee Record
-    const receiptNumber = 'REC' + Date.now();
+    const receiptNumber = 'REC' + Date.now() + Math.floor(Math.random() * 1000);
     const feeRecord = new FeeRecord({
       student: studentId,
-      amount,
-      paymentMode,
+      amount: depositAmount,
+      paymentMode: paymentMode || 'Cash',
       receiptNumber,
-      referenceId,
-      remarks,
-      recordedBy
+      referenceId: referenceId || '',
+      remarks: remarks || 'Fee Payment',
+      recordedBy: recordedBy || 'Admin'
     });
+
+    console.log('Saving Fee Record...');
     await feeRecord.save();
+    console.log('✅ Fee Record saved');
 
     // 2. Update Student Balance
-    const student = await Student.findByIdAndUpdate(
-      studentId,
-      { $inc: { paidFees: amount } },
-      { new: true }
-    );
+    student.paidFees = (student.paidFees || 0) + depositAmount;
 
-    res.status(201).json({ feeRecord, student });
+    // 3. Update Installment Logic
+    if (student.paymentPlan === 'Installment') {
+      console.log('Processing Installment Logic...');
+      const totalInstallments = student.installments || 1;
+      student.installmentsPaidCount = (student.installmentsPaidCount || 0) + 1;
+      
+      const remainingInstallments = totalInstallments - student.installmentsPaidCount;
+      const totalFees = student.totalFees || 0;
+      const discount = student.discount || 0;
+      const totalBalance = (totalFees - discount) - student.paidFees;
+
+      const baseEmi = student.emiAmount || 0;
+      const currentNextAmount = student.nextInstallmentAmount || baseEmi;
+
+      if (remainingInstallments > 1) {
+        // Carry forward shortfall/excess to the next EMI
+        const shortfall = currentNextAmount - depositAmount;
+        student.nextInstallmentAmount = baseEmi + shortfall;
+      } else if (remainingInstallments === 1) {
+        // Second to last installment - make sure the next one is the absolute final balance
+        student.nextInstallmentAmount = totalBalance;
+      } else {
+        // All installments used up - lock the remaining balance (if any)
+        student.nextInstallmentAmount = totalBalance > 0 ? totalBalance : 0;
+      }
+      console.log('✅ Installment Logic processed');
+    }
+
+    console.log('Saving Student updates...');
+    await student.save();
+    console.log('✅ Student updated successfully');
+
+    res.status(201).json({ 
+      success: true,
+      message: 'Payment recorded successfully',
+      feeRecord, 
+      student 
+    });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('❌ FATAL DEPOSIT ERROR:', err);
+    res.status(500).json({ 
+      message: 'Internal Server Error while recording payment', 
+      error: err.message,
+      details: err.toString()
+    });
   }
 });
 
@@ -100,7 +159,6 @@ router.get('/report', async (req, res) => {
     const reports = await FeeRecord.find(query)
       .populate({
         path: 'student',
-        select: 'name enrollmentNumber center',
         populate: { path: 'center', select: 'centerName code' }
       })
       .sort({ createdAt: -1 });

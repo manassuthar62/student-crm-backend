@@ -33,8 +33,8 @@ const feeRecordSchema = new mongoose.Schema({
     trim: true
   },
   recordedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    type: String,
+    default: 'Admin'
   }
 }, {
   timestamps: true

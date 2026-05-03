@@ -9,5 +9,7 @@ router.post('/resend-otp', authController.resendOTP);
 router.post('/firebase-login', authController.firebaseLogin);
 router.post('/send-email-otp', authController.sendEmailOTP);
 router.post('/verify-email-otp', authController.verifyEmailOTP);
+router.post('/send-mobile-otp', authController.sendMobileOTP);
+router.post('/verify-mobile-otp', authController.verifyMobileOTP);
 
 module.exports = router;
