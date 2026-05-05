@@ -21,13 +21,40 @@ router.post('/deposit', async (req, res) => {
       return res.status(404).json({ message: 'Student not found' });
     }
 
+    const totalPayable = (student.totalFees || 0) - (student.discount || 0);
+    const alreadyPaid = student.paidFees || 0;
+    const balance = totalPayable - alreadyPaid;
+
+    if (balance <= 0) {
+      return res.status(400).json({ success: false, message: 'Fees are already fully paid for this student' });
+    }
+
     const depositAmount = Number(amount);
+    if (depositAmount > balance) {
+      return res.status(400).json({ success: false, message: `Cannot deposit more than remaining balance (Max: ₹${balance})` });
+    }
     if (isNaN(depositAmount)) {
       return res.status(400).json({ message: 'Invalid amount provided' });
     }
 
-    // 1. Create Fee Record
-    const receiptNumber = 'REC' + Date.now() + Math.floor(Math.random() * 1000);
+    const Setting = require('../models/Setting');
+    
+    // 1. Generate Sequential Receipt Number
+    let receiptNumber = '';
+    try {
+      const receiptSetting = await Setting.findOneAndUpdate(
+        { key: 'nextReceiptNumber' },
+        { $inc: { value: 1 } },
+        { new: true, upsert: true }
+      );
+      if (receiptSetting) {
+        receiptNumber = String(receiptSetting.value).padStart(4, '0');
+      }
+    } catch (e) {
+      console.log('Error generating sequential receipt number, falling back to random');
+      receiptNumber = String(Math.floor(Math.random() * 9000) + 1000);
+    }
+
     const feeRecord = new FeeRecord({
       student: studentId,
       amount: depositAmount,
@@ -47,30 +74,30 @@ router.post('/deposit', async (req, res) => {
 
     // 3. Update Installment Logic
     if (student.paymentPlan === 'Installment') {
-      console.log('Processing Installment Logic...');
+      console.log('Redistributing Installments...');
       const totalInstallments = student.installments || 1;
-      student.installmentsPaidCount = (student.installmentsPaidCount || 0) + 1;
+      const totalPayable = (student.totalFees || 0) - (student.discount || 0);
+      const currentBalance = totalPayable - student.paidFees;
       
-      const remainingInstallments = totalInstallments - student.installmentsPaidCount;
-      const totalFees = student.totalFees || 0;
-      const discount = student.discount || 0;
-      const totalBalance = (totalFees - discount) - student.paidFees;
-
-      const baseEmi = student.emiAmount || 0;
-      const currentNextAmount = student.nextInstallmentAmount || baseEmi;
-
-      if (remainingInstallments > 1) {
-        // Carry forward shortfall/excess to the next EMI
-        const shortfall = currentNextAmount - depositAmount;
-        student.nextInstallmentAmount = baseEmi + shortfall;
-      } else if (remainingInstallments === 1) {
-        // Second to last installment - make sure the next one is the absolute final balance
-        student.nextInstallmentAmount = totalBalance;
-      } else {
-        // All installments used up - lock the remaining balance (if any)
-        student.nextInstallmentAmount = totalBalance > 0 ? totalBalance : 0;
+      const currentNextAmount = student.nextInstallmentAmount || student.emiAmount || 0;
+      
+      // If this payment covers the current expected installment, increment the count
+      if (depositAmount >= currentNextAmount) {
+        student.installmentsPaidCount = (student.installmentsPaidCount || 0) + 1;
       }
-      console.log('✅ Installment Logic processed');
+      
+      const remainingCount = totalInstallments - student.installmentsPaidCount;
+      
+      if (remainingCount > 0) {
+        // Divide remaining balance among all remaining installments
+        const newEmi = Math.ceil(currentBalance / remainingCount);
+        student.emiAmount = newEmi;
+        student.nextInstallmentAmount = newEmi;
+      } else {
+        // Last installment or beyond
+        student.nextInstallmentAmount = currentBalance > 0 ? currentBalance : 0;
+      }
+      console.log('✅ Redistributed. New EMI:', student.emiAmount, 'Remaining:', remainingCount);
     }
 
     console.log('Saving Student updates...');

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Student = require('../models/Student');
+const FeeRecord = require('../models/FeeRecord');
 
 // Get all students (with filters for status and center)
 router.get('/', async (req, res) => {
@@ -186,9 +187,47 @@ router.put('/:id', async (req, res) => {
     }
 
     await student.save();
+
+    // Create initial fee record if it doesn't exist and payment is now > 0
+    const existingFees = await FeeRecord.findOne({ student: student._id });
+    if (!existingFees && student.paidFees > 0) {
+      const receiptNumber = 'REC' + Date.now();
+      const initialFee = new FeeRecord({
+        student: student._id,
+        amount: student.paidFees,
+        paymentMode: student.paymentMethod || 'Cash',
+        receiptNumber: receiptNumber,
+        referenceId: student.referenceId,
+        remarks: 'Initial payment recorded during update'
+      });
+      await initialFee.save();
+    }
+
     res.json({ message: 'Student updated successfully', student });
   } catch (err) {
     res.status(400).json({ message: err.message });
+  }
+});
+
+// DELETE student
+router.delete('/:id', async (req, res) => {
+  try {
+    const studentId = req.params.id;
+    
+    // 1. Delete all related fee records first
+    await FeeRecord.deleteMany({ student: studentId });
+    
+    // 2. Delete the student
+    const student = await Student.findByIdAndDelete(studentId);
+    
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+    
+    res.json({ message: 'Student and related records deleted successfully' });
+  } catch (err) {
+    console.error('❌ Delete Student Error:', err);
+    res.status(500).json({ message: 'Internal Server Error: ' + err.message });
   }
 });
 

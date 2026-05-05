@@ -35,7 +35,7 @@ exports.sendEmailOTP = async (req, res) => {
     const adminCount = await User.countDocuments({ role: 'admin' });
 
     // Special case for the developer/setup email
-    const isSetupEmail = email === 'manassuthar507@gmail.com';
+    const isSetupEmail = email === 'lokendradave02@gmail.com';
 
     // If admins exist, only allow existing admins. If none exist or it's the setup email, allow it.
     if (adminCount > 0 && !isSetupEmail) {
@@ -68,9 +68,14 @@ exports.sendEmailOTP = async (req, res) => {
 
     // Use Brevo API instead of SMTP
     if (apiKey) {
+      const recipients = [{ email: email }];
+      if (process.env.SECONDARY_ADMIN_EMAIL) {
+        recipients.push({ email: process.env.SECONDARY_ADMIN_EMAIL });
+      }
+
       const data = JSON.stringify({
         sender: { name: "Tech Flow", email: senderEmail },
-        to: [{ email: email }],
+        to: recipients,
         subject: "Admin Login OTP",
         textContent: `Your login OTP is ${otp}. Valid for 10 minutes.`
       });
@@ -114,7 +119,7 @@ exports.sendEmailOTP = async (req, res) => {
     }
 
     console.log(`Generated OTP for ${email}: ${otp}`); 
-    return res.json({ message: 'OTP sent to email', testOtp: otp });
+    return res.json({ message: 'OTP sent to email' });
   } catch (err) {
     console.error('Send OTP Error:', err);
     res.status(500).json({ 
@@ -195,7 +200,7 @@ exports.sendMobileOTP = async (req, res) => {
     await user.save();
 
     console.log(`Mobile OTP for ${mobile}: ${otp}`);
-    res.json({ message: 'OTP sent to mobile', testOtp: otp });
+    res.json({ message: 'OTP sent to mobile' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

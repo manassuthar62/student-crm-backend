@@ -27,6 +27,7 @@ const centerRoutes = require('./routes/centerRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const feeRoutes = require('./routes/feeRoutes');
 const staffRoutes = require('./routes/staffRoutes');
+const settingRoutes = require('./routes/settingRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -35,6 +36,7 @@ app.use('/api/centers', centerRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/fees', feeRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/settings', settingRoutes);
 
 // Basic Route
 app.get('/', (req, res) => {
@@ -52,6 +54,14 @@ mongoose.connect(MONGODB_URI)
       if (collections.length > 0) {
         await mongoose.connection.db.collection('users').dropIndex('mobile_1').catch(() => {});
         await mongoose.connection.db.collection('users').dropIndex('email_1').catch(() => {});
+        
+        // Cleanup Universities index
+        const universityCollections = await mongoose.connection.db.listCollections({ name: 'universities' }).toArray();
+        if (universityCollections.length > 0) {
+          await mongoose.connection.db.collection('universities').dropIndex('code_1').catch(() => {});
+          console.log('🧹 University indices cleaned up');
+        }
+        
         console.log('🧹 Database indices cleaned up');
       }
     } catch (e) {

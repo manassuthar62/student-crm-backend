@@ -119,6 +119,14 @@ const studentSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: ''
+  },
+  gender: {
+    type: String,
+    default: 'Male'
+  },
+  category: {
+    type: String,
+    default: 'General'
   }
 }, {
   timestamps: true
