@@ -127,6 +127,14 @@ const studentSchema = new mongoose.Schema({
   category: {
     type: String,
     default: 'General'
+  },
+  addedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  registeredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 }, {
   timestamps: true

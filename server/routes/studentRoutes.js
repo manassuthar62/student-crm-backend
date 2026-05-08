@@ -7,13 +7,26 @@ const FeeRecord = require('../models/FeeRecord');
 router.get('/', async (req, res) => {
   try {
     const filters = {};
-    if (req.query.status) filters.status = req.query.status;
-    if (req.query.centerId) filters.center = req.query.centerId;
-    if (req.query.universityId) filters.university = req.query.universityId;
+    const { status, centerId, universityId, userId, role } = req.query;
 
-    const students = await Student.find(filters)
+    if (status) filters.status = status;
+    if (centerId) filters.center = centerId;
+    if (universityId) filters.university = universityId;
+
+    console.log('🔍 Filter Request:', { role, userId });
+    let query = { ...filters };
+
+    // Filter by staff if role is staff
+    if (role && role.toLowerCase() === 'staff' && userId) {
+      query.addedBy = userId;
+    }
+    console.log('✅ Final Query:', query);
+
+    const students = await Student.find(query)
       .populate('center', 'centerName code')
       .populate('university', 'name code')
+      .populate('addedBy', 'name')
+      .populate('registeredBy', 'name role')
       .sort({ createdAt: -1 });
     res.json(students);
   } catch (err) {
@@ -65,7 +78,7 @@ router.post('/register', async (req, res) => {
     }
 
     const student = new Student(studentData);
-    const newStudent = await student.save();
+    const newStudent = await (await student.save()).populate(['addedBy', 'registeredBy']);
 
     // Create initial fee record if payment was made during registration
     if (newStudent.paidFees > 0) {
@@ -131,7 +144,9 @@ router.get('/:id', async (req, res) => {
   try {
     const student = await Student.findById(req.params.id)
       .populate('center')
-      .populate('university');
+      .populate('university')
+      .populate('addedBy', 'name')
+      .populate('registeredBy', 'name role');
     if (!student) return res.status(404).json({ message: 'Student not found' });
     res.json(student);
   } catch (err) {
@@ -144,7 +159,8 @@ router.get('/mobile/:mobile', async (req, res) => {
   try {
     const student = await Student.findOne({ mobile: req.params.mobile })
       .populate('center')
-      .populate('university');
+      .populate('university')
+      .populate('registeredBy', 'name role');
     if (!student) return res.status(404).json({ message: 'Student not found' });
     res.json(student);
   } catch (err) {
