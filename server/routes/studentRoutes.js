@@ -2,25 +2,26 @@ const express = require('express');
 const router = express.Router();
 const Student = require('../models/Student');
 const FeeRecord = require('../models/FeeRecord');
+const { auth } = require('../middleware/auth');
 
-// Get all students (with filters for status and center)
-router.get('/', async (req, res) => {
+// Get all students (with filters and data separation)
+router.get('/', auth, async (req, res) => {
   try {
     const filters = {};
-    const { status, centerId, universityId, userId, role } = req.query;
+    const { status, centerId, universityId } = req.query;
 
     if (status) filters.status = status;
     if (centerId) filters.center = centerId;
     if (universityId) filters.university = universityId;
 
-    console.log('🔍 Filter Request:', { role, userId });
     let query = { ...filters };
 
-    // Filter by staff if role is staff
-    if (role && role.toLowerCase() === 'staff' && userId) {
-      query.addedBy = userId;
+    // DATA SEPARATION: If role is center, only show their own students
+    if (req.user.role === 'center' || req.user.role === 'staff') {
+      query.addedBy = req.user._id;
     }
-    console.log('✅ Final Query:', query);
+
+    console.log(`🔍 Students Fetched for ${req.user.name} (${req.user.role}):`, query);
 
     const students = await Student.find(query)
       .populate('center', 'centerName code')

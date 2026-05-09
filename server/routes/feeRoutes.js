@@ -2,14 +2,14 @@ const express = require('express');
 const router = express.Router();
 const FeeRecord = require('../models/FeeRecord');
 const Student = require('../models/Student');
+const { auth } = require('../middleware/auth');
 
 // Deposit Fee
-router.post('/deposit', async (req, res) => {
+router.post('/deposit', auth, async (req, res) => {
   try {
     console.log('--- Fee Deposit Process Started ---');
-    console.log('Request Body:', JSON.stringify(req.body, null, 2));
     
-    const { studentId, amount, paymentMode, remarks, recordedBy, referenceId } = req.body;
+    const { studentId, amount, paymentMode, remarks, referenceId } = req.body;
 
     if (!studentId || !amount) {
       return res.status(400).json({ message: 'Student ID and amount are required' });
@@ -17,8 +17,12 @@ router.post('/deposit', async (req, res) => {
 
     const student = await Student.findById(studentId);
     if (!student) {
-      console.log('❌ Student not found:', studentId);
       return res.status(404).json({ message: 'Student not found' });
+    }
+
+    // SECURITY CHECK: Center can only collect fees for their own students
+    if (req.user.role !== 'admin' && String(student.addedBy) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Unauthorized: You can only collect fees for your own students' });
     }
 
     const totalPayable = (student.totalFees || 0) - (student.discount || 0);
@@ -32,9 +36,6 @@ router.post('/deposit', async (req, res) => {
     const depositAmount = Number(amount);
     if (depositAmount > balance) {
       return res.status(400).json({ success: false, message: `Cannot deposit more than remaining balance (Max: ₹${balance})` });
-    }
-    if (isNaN(depositAmount)) {
-      return res.status(400).json({ message: 'Invalid amount provided' });
     }
 
     const Setting = require('../models/Setting');
@@ -51,7 +52,6 @@ router.post('/deposit', async (req, res) => {
         receiptNumber = String(receiptSetting.value).padStart(4, '0');
       }
     } catch (e) {
-      console.log('Error generating sequential receipt number, falling back to random');
       receiptNumber = String(Math.floor(Math.random() * 9000) + 1000);
     }
 
@@ -62,76 +62,61 @@ router.post('/deposit', async (req, res) => {
       receiptNumber,
       referenceId: referenceId || '',
       remarks: remarks || 'Fee Payment',
-      recordedBy: recordedBy || 'Admin'
+      recordedBy: req.user.name // Use name from token
     });
 
-    console.log('Saving Fee Record...');
     await feeRecord.save();
-    console.log('✅ Fee Record saved');
 
     // 2. Update Student Balance
     student.paidFees = (student.paidFees || 0) + depositAmount;
 
     // 3. Update Installment Logic
     if (student.paymentPlan === 'Installment') {
-      console.log('Redistributing Installments...');
       const totalInstallments = student.installments || 1;
       const totalPayable = (student.totalFees || 0) - (student.discount || 0);
       const currentBalance = totalPayable - student.paidFees;
-      
       const currentNextAmount = student.nextInstallmentAmount || student.emiAmount || 0;
       
-      // If this payment covers the current expected installment, increment the count
       if (depositAmount >= currentNextAmount) {
         student.installmentsPaidCount = (student.installmentsPaidCount || 0) + 1;
       }
       
       const remainingCount = totalInstallments - student.installmentsPaidCount;
-      
       if (remainingCount > 0) {
-        // Divide remaining balance among all remaining installments
         const newEmi = Math.ceil(currentBalance / remainingCount);
         student.emiAmount = newEmi;
         student.nextInstallmentAmount = newEmi;
       } else {
-        // Last installment or beyond
         student.nextInstallmentAmount = currentBalance > 0 ? currentBalance : 0;
       }
-      console.log('✅ Redistributed. New EMI:', student.emiAmount, 'Remaining:', remainingCount);
     }
 
-    console.log('Saving Student updates...');
     await student.save();
-    console.log('✅ Student updated successfully');
-
-    res.status(201).json({ 
-      success: true,
-      message: 'Payment recorded successfully',
-      feeRecord, 
-      student 
-    });
+    res.status(201).json({ success: true, message: 'Payment recorded successfully', feeRecord, student });
   } catch (err) {
     console.error('❌ FATAL DEPOSIT ERROR:', err);
-    res.status(500).json({ 
-      message: 'Internal Server Error while recording payment', 
-      error: err.message,
-      details: err.toString()
-    });
+    res.status(500).json({ message: 'Internal Server Error', error: err.message });
   }
 });
 
 // Apply Discount
-router.post('/discount', async (req, res) => {
+router.post('/discount', auth, async (req, res) => {
   try {
     const { studentId, discountAmount, remarks } = req.body;
+    
+    // SECURITY CHECK: Center can only apply discount for their own students
+    const studentCheck = await Student.findById(studentId);
+    if (!studentCheck) return res.status(404).json({ message: 'Student not found' });
+    
+    if (req.user.role !== 'admin' && String(studentCheck.addedBy) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Unauthorized: You can only apply discounts for your own students' });
+    }
 
     const student = await Student.findByIdAndUpdate(
       studentId,
-      { $inc: { discount: discountAmount } },
+      { $inc: { discount: discountAmount }, discountRemark: remarks },
       { new: true }
     );
-
-    if (!student) return res.status(404).json({ message: 'Student not found' });
 
     res.json({ message: 'Discount applied successfully', student });
   } catch (err) {
@@ -140,16 +125,20 @@ router.post('/discount', async (req, res) => {
 });
 
 // Get Fee Records for a Student
-router.get('/student/:studentId', async (req, res) => {
+router.get('/student/:studentId', auth, async (req, res) => {
   try {
-    let records = await FeeRecord.find({ student: req.params.studentId }).sort({ createdAt: -1 });
     const student = await Student.findById(req.params.studentId);
+    if (!student) return res.status(404).json({ message: 'Student not found' });
 
-    if (student && student.paidFees > 0) {
-      // Calculate total amount in existing FeeRecords
+    // SECURITY CHECK
+    if (req.user.role !== 'admin' && String(student.addedBy) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Unauthorized: Access denied to these records' });
+    }
+
+    let records = await FeeRecord.find({ student: req.params.studentId }).sort({ createdAt: -1 });
+
+    if (student.paidFees > 0) {
       const recordedTotal = records.reduce((sum, r) => sum + r.amount, 0);
-      
-      // If there's a gap (legacy data), add the virtual initial record
       if (recordedTotal < student.paidFees) {
         records.push({
           _id: student._id + '_initial',
@@ -170,17 +159,24 @@ router.get('/student/:studentId', async (req, res) => {
   }
 });
 
-// Payment Report (Admin/Center)
-router.get('/report', async (req, res) => {
+// Payment Report (Separated by Center)
+router.get('/report', auth, async (req, res) => {
   try {
-    const { centerId } = req.query;
     let query = {};
     
-    if (centerId) {
-      // Find students in this center first
-      const students = await Student.find({ center: centerId }).select('_id');
+    // If not admin, only show students added by this center
+    if (req.user.role !== 'admin') {
+      const students = await Student.find({ addedBy: req.user._id }).select('_id');
       const studentIds = students.map(s => s._id);
       query.student = { $in: studentIds };
+    } else {
+      // Admin can filter by specific centerId if provided
+      const { centerId } = req.query;
+      if (centerId) {
+        const students = await Student.find({ center: centerId }).select('_id');
+        const studentIds = students.map(s => s._id);
+        query.student = { $in: studentIds };
+      }
     }
 
     const reports = await FeeRecord.find(query)
@@ -196,17 +192,18 @@ router.get('/report', async (req, res) => {
 });
 
 // Get Single Fee Record
-router.get('/:id', async (req, res) => {
+router.get('/:id', auth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+    let record;
+
     // Handle Virtual Initial Receipt
     if (id.endsWith('_initial')) {
       const studentId = id.split('_initial')[0];
       const student = await Student.findById(studentId).populate('university');
       if (!student) return res.status(404).json({ message: 'Student not found' });
       
-      return res.json({
+      record = {
         _id: id,
         student: student,
         amount: student.paidFees,
@@ -215,15 +212,28 @@ router.get('/:id', async (req, res) => {
         receiptNumber: 'ADMISSION-' + student._id.toString().slice(-4).toUpperCase(),
         remarks: 'Initial Admission Payment',
         referenceId: student.referenceId
+      };
+    } else {
+      record = await FeeRecord.findById(id).populate({
+        path: 'student',
+        populate: { path: 'university' }
       });
     }
-
-    const record = await FeeRecord.findById(id).populate({
-      path: 'student',
-      populate: { path: 'university' }
-    });
     
     if (!record) return res.status(404).json({ message: 'Receipt not found' });
+
+    // SECURITY CHECK
+    const studentData = record.student;
+    if (req.user.role !== 'admin' && String(studentData.addedBy || studentData) !== String(req.user._id)) {
+      // Note: for initial receipt, studentData IS the student object. For normal, it's populated.
+      const addedBy = studentData.addedBy || studentData._id; // fallback logic
+      // Actually if it's already populated, we check record.student.addedBy
+      const studentAddedBy = record.student.addedBy ? String(record.student.addedBy) : String(record.student);
+      if (req.user.role !== 'admin' && studentAddedBy !== String(req.user._id)) {
+         return res.status(403).json({ message: 'Unauthorized access to this receipt' });
+      }
+    }
+
     res.json(record);
   } catch (err) {
     res.status(500).json({ message: err.message });
