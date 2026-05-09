@@ -5,7 +5,7 @@ const auth = async (req, res, next) => {
   try {
     const authHeader = req.header('Authorization');
     
-    // 1. Check for Token (Modern Mobile App)
+    // 1. Check for Token (Modern Mobile App & Updated Admin Panel)
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.replace('Bearer ', '');
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
@@ -17,8 +17,8 @@ const auth = async (req, res, next) => {
       }
     }
 
-    // 2. Check for Legacy Query Params (Old Admin Panel Pages)
-    const { userId, role } = req.query;
+    // 2. Check for Legacy Query Params (Backward Compatibility for non-updated Web Pages)
+    const { userId } = req.query;
     if (userId) {
       const user = await User.findById(userId);
       if (user) {
@@ -27,15 +27,7 @@ const auth = async (req, res, next) => {
       }
     }
 
-    // 3. DEFAULT/FALLBACK: If no authentication provided, treat as Admin (Backward Compatibility for Web Panel)
-    // We fetch any admin user to populate req.user context
-    const defaultAdmin = await User.findOne({ role: 'admin' });
-    if (defaultAdmin) {
-      req.user = defaultAdmin;
-      return next();
-    }
-
-    res.status(401).json({ message: 'Authentication required' });
+    res.status(401).json({ message: 'Authentication required. Please login again.' });
   } catch (err) {
     console.error('Auth Middleware Error:', err);
     res.status(401).json({ message: 'Authentication failed' });
