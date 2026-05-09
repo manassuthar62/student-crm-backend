@@ -163,20 +163,24 @@ router.get('/student/:studentId', auth, async (req, res) => {
 router.get('/report', auth, async (req, res) => {
   try {
     let query = {};
+    const userRole = req.user.role?.toLowerCase();
     
-    // If not admin, only show students added by this center
-    if (req.user.role !== 'admin') {
-      const students = await Student.find({ addedBy: req.user._id }).select('_id');
-      const studentIds = students.map(s => s._id);
-      query.student = { $in: studentIds };
-    } else {
-      // Admin can filter by specific centerId if provided
+    // Admin sees everything unless a specific centerId is provided
+    if (userRole === 'admin') {
       const { centerId } = req.query;
       if (centerId) {
         const students = await Student.find({ center: centerId }).select('_id');
-        const studentIds = students.map(s => s._id);
-        query.student = { $in: studentIds };
+        query.student = { $in: students.map(s => s._id) };
       }
+    } else {
+      // Center/Staff sees only their students
+      const students = await Student.find({ 
+        $or: [
+          { addedBy: req.user._id },
+          { center: req.user._id }
+        ]
+      }).select('_id');
+      query.student = { $in: students.map(s => s._id) };
     }
 
     const reports = await FeeRecord.find(query)
@@ -185,8 +189,11 @@ router.get('/report', auth, async (req, res) => {
         populate: { path: 'center', select: 'centerName code' }
       })
       .sort({ createdAt: -1 });
+
+    console.log(`📊 Report fetched for ${req.user.name} (${userRole}). Found ${reports.length} records.`);
     res.json(reports);
   } catch (err) {
+    console.error('❌ Report Error:', err);
     res.status(500).json({ message: err.message });
   }
 });

@@ -14,11 +14,15 @@ router.get('/', auth, async (req, res) => {
     if (centerId) filters.center = centerId;
     if (universityId) filters.university = universityId;
 
+    const userRole = req.user.role?.toLowerCase();
     let query = { ...filters };
 
-    // DATA SEPARATION: If role is center, only show their own students
-    if (req.user.role === 'center' || req.user.role === 'staff') {
-      query.addedBy = req.user._id;
+    // DATA SEPARATION: If role is center/staff, only show their own students
+    if (userRole === 'center' || userRole === 'staff') {
+      query.$or = [
+        { addedBy: req.user._id },
+        { center: req.user._id }
+      ];
     }
 
     const students = await Student.find(query)
@@ -27,6 +31,8 @@ router.get('/', auth, async (req, res) => {
       .populate('addedBy', 'name')
       .populate('registeredBy', 'name role')
       .sort({ createdAt: -1 });
+
+    console.log(`🔍 Students fetched for ${req.user.name} (${userRole}). Found ${students.length} students.`);
     res.json(students);
   } catch (err) {
     res.status(500).json({ message: err.message });
