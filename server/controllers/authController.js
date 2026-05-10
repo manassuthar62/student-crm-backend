@@ -175,7 +175,7 @@ exports.verifyEmailOTP = async (req, res) => {
     res.json({
       message: 'Logged in successfully',
       token,
-      user: { id: user._id, email: user.email, role: user.role, name: user.name, permissions: user.permissions || [] }
+      user: { id: user._id, _id: user._id, email: user.email, role: user.role, name: user.name, permissions: user.permissions || [] }
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -233,7 +233,7 @@ exports.verifyMobileOTP = async (req, res) => {
     res.json({
       message: 'Logged in successfully',
       token,
-      user: { id: user._id, mobile: user.mobile, role: user.role, name: user.name, permissions: user.permissions || [] }
+      user: { id: user._id, _id: user._id, mobile: user.mobile, role: user.role, name: user.name, permissions: user.permissions || [] }
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -282,7 +282,8 @@ exports.firebaseLogin = async (req, res) => {
       message: 'Logged in successfully',
       token,
       user: {
-        id: user._id,
+          id: user._id,
+          _id: user._id,
         mobile: user.mobile,
         role: user.role,
         name: user.name,
