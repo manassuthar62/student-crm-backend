@@ -4,6 +4,19 @@ const FeeRecord = require('../models/FeeRecord');
 const Student = require('../models/Student');
 const { auth } = require('../middleware/auth');
 
+const isCenterRole = (user) => ['center', 'staff'].includes(user.role?.toLowerCase());
+const canAccessStudent = (user, student) => {
+  if (user.role === 'admin') return true;
+  if (!isCenterRole(user) || !student) return false;
+
+  const userId = String(user._id);
+  const addedBy = student.addedBy?._id || student.addedBy;
+  const center = student.center?._id || student.center;
+  const registeredBy = student.registeredBy?._id || student.registeredBy;
+
+  return [addedBy, center, registeredBy].some((value) => value && String(value) === userId);
+};
+
 // Deposit Fee
 router.post('/deposit', auth, async (req, res) => {
   try {
@@ -21,7 +34,7 @@ router.post('/deposit', auth, async (req, res) => {
     }
 
     // SECURITY CHECK: Center can only collect fees for their own students
-    if (req.user.role !== 'admin' && String(student.addedBy) !== String(req.user._id)) {
+    if (!canAccessStudent(req.user, student)) {
       return res.status(403).json({ message: 'Unauthorized: You can only collect fees for your own students' });
     }
 
@@ -108,7 +121,7 @@ router.post('/discount', auth, async (req, res) => {
     const studentCheck = await Student.findById(studentId);
     if (!studentCheck) return res.status(404).json({ message: 'Student not found' });
     
-    if (req.user.role !== 'admin' && String(studentCheck.addedBy) !== String(req.user._id)) {
+    if (!canAccessStudent(req.user, studentCheck)) {
       return res.status(403).json({ message: 'Unauthorized: You can only apply discounts for your own students' });
     }
 
@@ -131,7 +144,7 @@ router.get('/student/:studentId', auth, async (req, res) => {
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
     // SECURITY CHECK
-    if (req.user.role !== 'admin' && String(student.addedBy) !== String(req.user._id)) {
+    if (!canAccessStudent(req.user, student)) {
       return res.status(403).json({ message: 'Unauthorized: Access denied to these records' });
     }
 
@@ -231,14 +244,8 @@ router.get('/:id', auth, async (req, res) => {
 
     // SECURITY CHECK
     const studentData = record.student;
-    if (req.user.role !== 'admin' && String(studentData.addedBy || studentData) !== String(req.user._id)) {
-      // Note: for initial receipt, studentData IS the student object. For normal, it's populated.
-      const addedBy = studentData.addedBy || studentData._id; // fallback logic
-      // Actually if it's already populated, we check record.student.addedBy
-      const studentAddedBy = record.student.addedBy ? String(record.student.addedBy) : String(record.student);
-      if (req.user.role !== 'admin' && studentAddedBy !== String(req.user._id)) {
-         return res.status(403).json({ message: 'Unauthorized access to this receipt' });
-      }
+    if (!canAccessStudent(req.user, studentData)) {
+      return res.status(403).json({ message: 'Unauthorized access to this receipt' });
     }
 
     res.json(record);

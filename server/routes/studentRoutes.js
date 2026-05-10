@@ -4,6 +4,19 @@ const Student = require('../models/Student');
 const FeeRecord = require('../models/FeeRecord');
 const { auth } = require('../middleware/auth');
 
+const isCenterRole = (user) => ['center', 'staff'].includes(user.role?.toLowerCase());
+const canAccessStudent = (user, student) => {
+  if (user.role === 'admin') return true;
+  if (!isCenterRole(user) || !student) return false;
+
+  const userId = String(user._id);
+  const addedBy = student.addedBy?._id || student.addedBy;
+  const center = student.center?._id || student.center;
+  const registeredBy = student.registeredBy?._id || student.registeredBy;
+
+  return [addedBy, center, registeredBy].some((value) => value && String(value) === userId);
+};
+
 // Get all students (with filters and data separation)
 router.get('/', auth, async (req, res) => {
   try {
@@ -133,10 +146,8 @@ router.get('/:id', auth, async (req, res) => {
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
     // Ownership check
-    if (req.user.role === 'center' || req.user.role === 'staff') {
-      if (student.addedBy?._id?.toString() !== req.user._id.toString() && student.addedBy?.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ message: 'You do not have permission to view this student' });
-      }
+    if (!canAccessStudent(req.user, student)) {
+      return res.status(403).json({ message: 'You do not have permission to view this student' });
     }
 
     res.json(student);
@@ -152,10 +163,8 @@ router.put('/:id', auth, async (req, res) => {
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
     // Ownership check
-    if (req.user.role === 'center' || req.user.role === 'staff') {
-      if (student.addedBy?.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ message: 'You do not have permission to update this student' });
-      }
+    if (!canAccessStudent(req.user, student)) {
+      return res.status(403).json({ message: 'You do not have permission to update this student' });
     }
 
     Object.assign(student, req.body);
@@ -191,10 +200,8 @@ router.delete('/:id', auth, async (req, res) => {
     if (!student) return res.status(404).json({ message: 'Student not found' });
 
     // Ownership check
-    if (req.user.role === 'center' || req.user.role === 'staff') {
-      if (student.addedBy?.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ message: 'You do not have permission to delete this student' });
-      }
+    if (!canAccessStudent(req.user, student)) {
+      return res.status(403).json({ message: 'You do not have permission to delete this student' });
     }
 
     await FeeRecord.deleteMany({ student: req.params.id });
