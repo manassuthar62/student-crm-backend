@@ -4,8 +4,8 @@ const User = require('../models/User');
 const auth = async (req, res, next) => {
   try {
     const authHeader = req.header('Authorization');
-    const findUserFromQuery = async () => {
-      const { userId } = req.query;
+    const findUserFromRequest = async () => {
+      const userId = req.header('x-user-id') || req.query.userId;
       if (!userId) return null;
       return User.findById(userId);
     };
@@ -28,7 +28,7 @@ const auth = async (req, res, next) => {
     }
 
     // 2. Check for Legacy Query Params (Backward Compatibility for non-updated Web Pages)
-    const user = await findUserFromQuery();
+    const user = await findUserFromRequest();
     if (user) {
       req.user = user;
       return next();
