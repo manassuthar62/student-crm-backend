@@ -14,10 +14,17 @@ dotenv.config();
 // });
 
 const app = express();
+const path = require('path');
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use('/public', express.static(path.join(__dirname, 'public')));
+
+// Privacy Policy Route
+app.get('/privacy-policy', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'privacy-policy.html'));
+});
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
